@@ -395,7 +395,7 @@ function renderAnalytics(){
   `<div class="ah">🔴 Cần đặt gấp / hết hàng — gợi ý nhập về ~${TGT} ngày (an toàn 60–100)</div>`+tg(['SKU','Tồn','V (sp/ngày)','D (ngày)','Gợi ý nhập thêm'],urg.map(x=>[lb(x)+' '+tag(x),x.stock,r1(x.V),fD(x),'<b>+'+Math.max(0,Math.ceil(x.V*TGT)-x.stock)+'</b>']))+
   `<div class="ah">🔵 Tồn đọng / bán chậm (D &gt; 100 ngày)</div>`+tg(['SKU','Tồn','Bán 30 ngày','D (ngày)'],slow.map(x=>[lb(x),x.stock,x.sold,fD(x)]))+
   `<div class="ah">🏬 Tổng quan cấp store</div>`+(storeHtml||'<div class="empty">Không có dữ liệu</div>')}
-function openAnalytics(productId){AK=productId||'';$('ascope').value='';showView('ana');renderAnalytics()}
+function openAnalytics(productId){if(!canMod('stock')){notify(NOPERM);showView('home');return}AK=productId||'';$('ascope').value='';showView('ana');renderAnalytics()}
 function closeAnalytics(){showView('track')}
 
 function updSkus(){
@@ -794,9 +794,17 @@ function restoreTrash(id){const x=(S.trash||[]).find(t=>t.id===id);if(!x)return;
 /* Phân quyền module */
 const MODN={stock:'Stock Tracking',price:'Price Tracking'},NOPERM='⚠️ Bạn không có quyền truy cập Module này. Vui lòng liên hệ Admin!',NONE='⚠️ Tài khoản chưa được cấp quyền module nào. Vui lòng liên hệ Admin!';
 const HASHV={'#stock':'track','#price':'price','#admin':'admin'},VHASH={track:'#stock',ana:'#stock',price:'#price',admin:'#admin'};
-const mods=u=>{if(u.role==='admin')return['stock','price'];let a=u.allowedModules;if(a==null)return['stock','price'];
-  if(typeof a==='string'){try{a=JSON.parse(a)}catch(e){a=a.split(/[\s,{}"']+/)}}
-  return Array.isArray(a)?a.filter(m=>MODN[m]):[]};
+/* Chính sách cố định theo tài khoản: danh sách module TỐI ĐA được dùng, áp dụng bất kể giá trị trong Database (Admin Panel chỉ có thể thu hẹp thêm, không thể mở rộng). */
+const ACCOUNT_CAP={nhanvienbagchunho:['price']};
+const capOf=u=>ACCOUNT_CAP[String(u&&u.username||'').trim().toLowerCase()];
+const isAdm=u=>!!u&&u.role==='admin'&&!capOf(u);
+const mods=u=>{let r;
+  if(u.role==='admin')r=['stock','price'];
+  else{let a=u.allowedModules;
+    if(a==null)r=['stock','price'];
+    else{if(typeof a==='string'){try{a=JSON.parse(a)}catch(e){a=a.split(/[\s,{}"']+/)}}
+      r=Array.isArray(a)?a.filter(m=>MODN[m]):[]}}
+  const cap=capOf(u);return cap?r.filter(m=>cap.includes(m)):r};
 let CURV='home';const canMod=m=>!!CU&&mods(CU).includes(m);
 /* currentUser (bản rút gọn, KHÔNG chứa mật khẩu/hash) — chỉ để tham khảo, quyền thật luôn đọc lại từ danh sách Users */
 const tokFp=u=>String(u.hash).slice(-16);
@@ -824,19 +832,19 @@ async function applyModulePermissions(silent){
 addEventListener('focus',()=>applyModulePermissions(true));setInterval(()=>applyModulePermissions(true),30000);
 document.addEventListener('DOMContentLoaded',()=>applyModulePermissions(true));
 /* Chặn mọi thao tác bên trong module không có quyền (kể cả khi bị gọi bằng script) */
-['click','change','input','keydown'].forEach(ev=>document.addEventListener(ev,e=>{const w=e.target.closest&&e.target.closest('#vTrack,#vAna,#vPrice,#alertModal');if(!w)return;
-  if(!canMod(w.id==='vTrack'||w.id==='vAna'?'stock':'price')){e.stopImmediatePropagation();e.preventDefault();notify(NOPERM);showView('home')}},true));
+['click','change','input','keydown'].forEach(ev=>document.addEventListener(ev,e=>{const w=e.target.closest&&e.target.closest('#vTrack,#vAna,#vPrice,#alertModal,#vAdmin');if(!w)return;
+  if(!(w.id==='vAdmin'?isAdm(CU):canMod(w.id==='vTrack'||w.id==='vAna'?'stock':'price'))){e.stopImmediatePropagation();e.preventDefault();notify(NOPERM);showView('home')}},true));
 let permT=0;function notify(t){const e=$('permMsg');e.textContent=t;e.hidden=false;clearTimeout(permT);permT=setTimeout(()=>{e.hidden=true},7000)}
 /* Điều hướng view */
 function showView(v){
   let M=[];if(!CU)v='login';
   else{M=mods(CU);const first=M.includes('stock')?'track':M.includes('price')?'price':'home',need={track:'stock',ana:'stock',price:'price'}[v];
     if(v==='home'&&M.length===1)v=first;
-    else if(v==='admin'&&CU.role!=='admin'){notify(NOPERM);v=first}
+    else if(v==='admin'&&!isAdm(CU)){notify(NOPERM);v=first}
     else if(need&&!M.includes(need)){notify(M.length?NOPERM:NONE);v=first}}
   ['Login','Home','Track','Ana','Price','Admin'].forEach(n=>$('v'+n).hidden=n.toLowerCase()!==v);
   $('hdr').hidden=!CU;$('boot').hidden=true;document.body.classList.toggle('no-stock',!!CU&&!M.includes('stock'));document.body.classList.toggle('no-price',!!CU&&!M.includes('price'));syncCurrentUser();CURV=v;
-  if(CU){$('who').textContent='Xin chào, '+CU.username+' · '+ROLE[CU.role];$('admBtn').hidden=CU.role!=='admin';$('hmS').hidden=!M.includes('stock');$('hmP').hidden=!M.includes('price');$('hmNone').hidden=M.length>0;$('homeBtn').hidden=M.length<2}
+  if(CU){$('who').textContent='Xin chào, '+CU.username+' · '+ROLE[CU.role];$('admBtn').hidden=!isAdm(CU);$('hmS').hidden=!M.includes('stock');$('hmP').hidden=!M.includes('price');$('hmNone').hidden=M.length>0;$('homeBtn').hidden=M.length<2}
   $('modeBar').hidden=!['track','ana','price'].includes(v)||M.length<2;$('mbS').hidden=!M.includes('stock');$('mbP').hidden=!M.includes('price');$('mbS').className=v==='track'||v==='ana'?'p':'';$('mbP').className=v==='price'?'p':'';$('alertModal').hidden=true;updBadge();
   if(v==='admin'){purgeTrash();renderAdmin()}else if(v==='track')render();else if(v==='price')renderPrice();else if(v==='home')homeInfo();
   if(v==='login'){prepLogin();$('permMsg').hidden=true}scrollTo(0,0);try{history.replaceState(null,'',VHASH[v]||(location.pathname+location.search))}catch(e){}}
@@ -845,7 +853,7 @@ function prepLogin(){const unk=ADMIN_EXISTS===null;
   $('lgS').textContent=unk?'Không khởi tạo được dữ liệu tài khoản. Kiểm tra mạng/cấu hình rồi thử lại.':'Đăng nhập để dùng Shopee Stock Tracker.'+(REMOTE?'':' (Chế độ cục bộ: tài khoản chỉ lưu trong trình duyệt này.)');
   $('lgB').textContent=unk?'Thử lại':'Đăng nhập';$('lgP').value='';$('lgM').textContent=''}
 /* Tài khoản cố định ban đầu (chỉ tạo khi hệ thống chưa có Admin nào). Nên đổi mật khẩu sau khi đăng nhập. */
-const SEED=[{username:'admin',role:'admin',mods:['stock','price'],salt:'8e04cb75097f8a4974824e36720d87c4',hash:'s:f408b2b708a5fcaf16ba91025640f0027a8f823cf559b173b6a92689b7f36ff6'},{username:'nhanvienbagchunho',role:'staff',mods:['stock','price'],salt:'b1293c396dc872af65f49f9c3988eb01',hash:'s:b3ece2d9828afd7f0d27bf0cd925e02d185d35e84620083d936ea707465ae9ed'},{username:'nhanvien2',role:'staff',mods:['stock','price'],salt:'556f6b667244d469a7da09e33d1659c4',hash:'s:eecc821237f41eb03cbf10e74cf2e5da619bcae438db75a40f8969116a407942'},{username:'quanly1',role:'manager',mods:['stock','price'],salt:'ba2493101f6bcb0cd338e8544a0214db',hash:'s:f672f667a27c8f2bcf6d4a12c5f6d40783c2312d749b9691845e663d6aabd506'}];
+const SEED=[{username:'admin',role:'admin',mods:['stock','price'],salt:'8e04cb75097f8a4974824e36720d87c4',hash:'s:f408b2b708a5fcaf16ba91025640f0027a8f823cf559b173b6a92689b7f36ff6'},{username:'nhanvienbagchunho',role:'staff',mods:['price'],salt:'b1293c396dc872af65f49f9c3988eb01',hash:'s:b3ece2d9828afd7f0d27bf0cd925e02d185d35e84620083d936ea707465ae9ed'},{username:'nhanvien2',role:'staff',mods:['stock','price'],salt:'556f6b667244d469a7da09e33d1659c4',hash:'s:eecc821237f41eb03cbf10e74cf2e5da619bcae438db75a40f8969116a407942'},{username:'quanly1',role:'manager',mods:['stock','price'],salt:'ba2493101f6bcb0cd338e8544a0214db',hash:'s:f672f667a27c8f2bcf6d4a12c5f6d40783c2312d749b9691845e663d6aabd506'}];
 async function seedUsers(){for(const d of SEED){
   try{await dbAdd({id:'u_'+d.username,username:d.username,uname:d.username,email:'',role:d.role,allowedModules:d.mods,active:true,salt:d.salt,hash:d.hash,created:Date.now()})}
   catch(e){if(!(await dbFindUser(d.username)))throw e}}}
@@ -873,7 +881,7 @@ function doLogout(){logAct('Đăng xuất','');clearSession();showView('login')}
 addEventListener('hashchange',()=>{if(CU)showView(HASHV[location.hash]||'home')});
 $('lgB').onclick=doLogin;['lgU','lgP'].forEach(id=>$(id).addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()}));
 /* Trang Admin */
-function renderAdmin(){renderUsers();fillLogFilters();renderLog();renderTrash()}
+function renderAdmin(){if(!isAdm(CU))return;renderUsers();fillLogFilters();renderLog();renderTrash()}
 async function renderUsers(){try{A.users=await dbListUsers()}catch(e){$('uList').innerHTML='<div class="empty">Lỗi tải danh sách: '+esc(e.message)+'</div>';return}const us=A.users.filter(u=>u.role!=='admin');
   $('uList').innerHTML=us.length?`<div class="scroll"><table><thead><tr><th>Tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Quyền module</th><th>Thao tác</th></tr></thead><tbody>${us.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.email)}</td><td>${ROLE[u.role]}</td><td>${u.active?'<span class="tag tok">Đang hoạt động</span>':'<span class="tag t-b">Đã khóa</span>'}</td><td style="white-space:nowrap"><label style="margin-right:8px"><input type="checkbox" style="width:auto;margin-right:4px" data-mod="stock"${mods(u).includes('stock')?' checked':''}>Stock</label><label style="margin-right:8px"><input type="checkbox" style="width:auto;margin-right:4px" data-mod="price"${mods(u).includes('price')?' checked':''}>Price</label><button type="button" data-ax="mods" data-id="${u.id}">Cập nhật quyền</button></td><td><button type="button" data-ax="pw" data-id="${u.id}">Đổi mật khẩu</button> <button type="button" data-ax="lock" data-id="${u.id}">${u.active?'Tạm khóa':'Mở khóa'}</button> <button type="button" data-ax="del" data-id="${u.id}">Xóa</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản con nào.</div>'}
 function fillLogFilters(){const fill=(id,first,vals)=>{const el=$(id),v=el.value;el.innerHTML=`<option value="">${first}</option>`+vals.map(x=>`<option>${esc(x)}</option>`).join('');el.value=vals.includes(v)?v:''};
