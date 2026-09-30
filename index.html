@@ -714,6 +714,35 @@ $('rxls').onclick=()=>{const a=restockAoa();if(a.length<2)return $('rmsg').textC
 $('pea').onclick=()=>{S.records.forEach(r=>{OPENK.add(r.key);OPEN.add(storeOf(r.key))});render()};
 $('pca').onclick=()=>{OPENK.clear();render()};
 /* ===== PHÂN QUYỀN / ADMIN ===== */
+/* ===== BẢO MẬT LƯU TRỮ: mã hóa + xác thực toàn vẹn (đồng bộ, không phụ thuộc HTTPS) ===== */
+const SHA256=(()=>{const K=[],H0=[];let n=0;for(let p=2;n<64;p++){let q=1;for(let d=2;d*d<=p;d++)if(p%d==0){q=0;break}if(q){if(n<8)H0[n]=Math.floor(Math.sqrt(p)%1*4294967296);K[n++]=Math.floor(Math.cbrt(p)%1*4294967296)}}
+  const rr=(x,n)=>(x>>>n)|(x<<(32-n));
+  return m=>{const l=m.length,nb=((l+9+63)>>6)<<6,bf=new Uint8Array(nb);bf.set(m);bf[l]=128;const dv=new DataView(bf.buffer);dv.setUint32(nb-8,Math.floor(l/536870912));dv.setUint32(nb-4,(l<<3)>>>0);
+    const h=H0.slice(),w=new Array(64);
+    for(let o=0;o<nb;o+=64){for(let i=0;i<16;i++)w[i]=dv.getUint32(o+i*4);
+      for(let i=16;i<64;i++){const s0=rr(w[i-15],7)^rr(w[i-15],18)^(w[i-15]>>>3),s1=rr(w[i-2],17)^rr(w[i-2],19)^(w[i-2]>>>10);w[i]=(w[i-16]+s0+w[i-7]+s1)|0}
+      let[a,b,c,d,e,f,g,hh]=h;
+      for(let i=0;i<64;i++){const t1=(hh+(rr(e,6)^rr(e,11)^rr(e,25))+((e&f)^(~e&g))+K[i]+w[i])|0,t2=((rr(a,2)^rr(a,13)^rr(a,22))+((a&b)^(a&c)^(b&c)))|0;hh=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0}
+      [a,b,c,d,e,f,g,hh].forEach((x,i)=>h[i]=(h[i]+x)|0)}
+    const out=new Uint8Array(32),ov=new DataView(out.buffer);h.forEach((x,i)=>ov.setUint32(i*4,x>>>0));return out}})();
+const U8=s=>new TextEncoder().encode(s),cat=(...a)=>{const o=new Uint8Array(a.reduce((s,x)=>s+x.length,0));let p=0;a.forEach(x=>{o.set(x,p);p+=x.length});return o};
+const hex=u=>[...u].map(x=>x.toString(16).padStart(2,'0')).join('');
+const b64=u=>{let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)},unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const hmac=(k,m)=>{const kp=new Uint8Array(64);kp.set(k);return SHA256(cat(kp.map(x=>x^0x5c),SHA256(cat(kp.map(x=>x^0x36),m))))};
+const APP_SECRET='stk#2026#Xq7-Lm3!vR9$pZ',EK=SHA256(U8('enc|'+APP_SECRET)),MK=SHA256(U8('mac|'+APP_SECRET));
+const xorS=(n,d)=>{const o=new Uint8Array(d.length);for(let i=0;i*32<d.length;i++){const ks=SHA256(cat(EK,n,new Uint8Array([i>>>24,(i>>>16)&255,(i>>>8)&255,i&255])));for(let j=0;j<32&&i*32+j<d.length;j++)o[i*32+j]=d[i*32+j]^ks[j]}return o};
+const ctEq=(a,b)=>{a=String(a);b=String(b);let d=a.length^b.length;for(let i=0;i<Math.max(a.length,b.length);i++)d|=(a.charCodeAt(i)||0)^(b.charCodeAt(i)||0);return d===0};
+const newSalt=()=>hex(crypto.getRandomValues(new Uint8Array(16)));
+function seal(v){const n=crypto.getRandomValues(new Uint8Array(12)),c=xorS(n,U8(JSON.stringify(v)));return 'v1.'+b64(n)+'.'+b64(c)+'.'+b64(hmac(MK,cat(n,c)))}
+function unseal(s){try{const p=String(s).split('.');if(p[0]!=='v1'||p.length!==4)return undefined;const n=unb64(p[1]),c=unb64(p[2]);if(!ctEq(p[3],b64(hmac(MK,cat(n,c)))))return undefined;return JSON.parse(new TextDecoder().decode(xorS(n,c)))}catch(e){return undefined}}
+const SK=(st,k)=>{try{return st.getItem(k)}catch(e){return null}},ssave=(st,k,v)=>{try{st.setItem(k,seal(v))}catch(e){}};
+const TAMPER={key:'',hit:false};
+function sload(st,k,def,legacy){const r=SK(st,k);if(r==null)return def;
+  if(r.startsWith('v1.')){const v=unseal(r);if(v!==undefined){if(TAMPER.key===k)TAMPER.key='';return v}onTamper(k);return def}
+  if(legacy==='drop'){try{st.removeItem(k)}catch(e){}return def}
+  if(legacy){try{const v=JSON.parse(r);ssave(st,k,v);return v}catch(e){}}
+  onTamper(k);return def}
+
 const AKEY='shopee_stock_tracker_auth',LKEY='shopee_stock_tracker_log',SKEY='shopee_stock_tracker_sess',TRASH_DAYS=30;
 let A={users:[]},LOG=[],CU=null,ADMIN_EXISTS=null;
 /* === DB adapter: điền BACKEND (Supabase) để lưu tài khoản trên Database dùng chung; để trống = lưu cục bộ trong trình duyệt === */
@@ -721,7 +750,8 @@ const BACKEND={url:'',anonKey:''};
 const REMOTE=!!(BACKEND.url&&BACKEND.anonKey),enc=encodeURIComponent;
 async function dbReq(method,path,body){const r=await fetch(BACKEND.url.replace(/\/$/,'')+'/rest/v1/'+path,{method,headers:{apikey:BACKEND.anonKey,Authorization:'Bearer '+BACKEND.anonKey,'Content-Type':'application/json',Prefer:'return=representation'},body:body?JSON.stringify(body):undefined});
   if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,120));const t=await r.text();return t?JSON.parse(t):[]}
-const locA=()=>{A=ld(AKEY,{users:[]});A.users=A.users||[];return A};
+const ldA=d=>sload(localStorage,AKEY,d,true);
+const locA=()=>{if(TAMPER.key===AKEY)throw new Error('Dữ liệu tài khoản bị can thiệp. Hãy xóa dữ liệu trang (Clear site data) để khởi tạo lại.');A=ldA({users:[]});if(TAMPER.key===AKEY)throw new Error('Dữ liệu tài khoản bị can thiệp. Hãy xóa dữ liệu trang (Clear site data) để khởi tạo lại.');A.users=A.users||[];return A};
 async function dbHasAdmin(){if(REMOTE)return(await dbReq('GET','app_users?role=eq.admin&select=id&limit=1')).length>0;return locA().users.some(u=>u.role==='admin')}
 async function dbFindUser(n){const k=n.toLowerCase();if(REMOTE)return(await dbReq('GET','app_users?uname=eq.'+enc(k)+'&select=*&limit=1'))[0]||null;return locA().users.find(u=>u.username.toLowerCase()===k)||null}
 async function dbGetUser(id){if(REMOTE)return(await dbReq('GET','app_users?id=eq.'+enc(id)+'&select=*&limit=1'))[0]||null;return locA().users.find(u=>u.id===id)||null}
@@ -735,10 +765,15 @@ const TYPEL={sku:'Xóa SKU',variant:'Xóa phân loại',product:'Xóa sản ph�
 const ld=(k,d)=>{try{const r=localStorage.getItem(k);return r?JSON.parse(r):d}catch(e){return d}};
 const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 async function hashPw(pw,salt){const t=salt+'|'+pw;
-  try{if(window.crypto&&crypto.subtle){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return 's:'+[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}}catch(e){}
-  let h=5381;for(let i=0;i<t.length;i++)h=((h<<5)+h+t.charCodeAt(i))|0;return 'w:'+(h>>>0).toString(16)}
-const saveA=()=>sv(AKEY,A);
-function logAct(a,d,u){const who=u||(CU&&CU.username);if(!who)return;LOG.unshift({t:Date.now(),u:who,a,d:d||''});if(LOG.length>3000)LOG.length=3000;sv(LKEY,LOG)}
+  try{if(window.crypto&&crypto.subtle){const d=await crypto.subtle.digest('SHA-256',U8(t));return 's:'+hex(new Uint8Array(d))}}catch(e){}
+  return 's:'+hex(SHA256(U8(t)))}
+const weakHash=t=>{let h=5381;for(let i=0;i<t.length;i++)h=((h<<5)+h+t.charCodeAt(i))|0;return 'w:'+(h>>>0).toString(16)};
+async function verifyPw(pw,u){const st=String(u.hash||'');
+  if(st.startsWith('w:')){if(!ctEq(weakHash(u.salt+'|'+pw),st))return false;
+    const salt=newSalt(),hash=await hashPw(pw,salt);await dbPatch(u.id,{salt,hash});u.salt=salt;u.hash=hash;return true}
+  return ctEq(await hashPw(pw,u.salt),st)}
+const saveA=()=>{if(TAMPER.key===AKEY)return;ssave(localStorage,AKEY,A)};
+function logAct(a,d,u){const who=u||(CU&&CU.username);if(!who)return;LOG.unshift({t:Date.now(),u:who,a,d:d||''});if(LOG.length>3000)LOG.length=3000;ssave(localStorage,LKEY,LOG)}
 /* Thùng rác (xóa mềm) */
 function trashPut(type,label,recs){if(!recs.length)return;
   const ks=[...new Set(recs.map(r=>r.key))],m={names:{},stores:{},tiers:{}};
@@ -760,12 +795,25 @@ const mods=u=>{if(u.role==='admin')return['stock','price'];let a=u.allowedModule
   return Array.isArray(a)?a.filter(m=>MODN[m]):[]};
 let CURV='home';const canMod=m=>!!CU&&mods(CU).includes(m);
 /* currentUser (bản rút gọn, KHÔNG chứa mật khẩu/hash) — chỉ để tham khảo, quyền thật luôn đọc lại từ danh sách Users */
-function syncCurrentUser(){try{if(CU)localStorage.setItem('currentUser',JSON.stringify({id:CU.id,username:CU.username,role:CU.role,allowedModules:mods(CU)}));else localStorage.removeItem('currentUser')}catch(e){}}
+const tokFp=u=>String(u.hash).slice(-16);
+function saveSession(u){ssave(sessionStorage,SKEY,{id:u.id,fp:tokFp(u),t:Date.now()})}
+function clearSession(){CU=null;try{sessionStorage.removeItem(SKEY)}catch(e){}try{localStorage.removeItem('currentUser')}catch(e){}}
+function syncCurrentUser(){try{if(CU)ssave(localStorage,'currentUser',{id:CU.id,username:CU.username,role:CU.role,allowedModules:mods(CU),t:Date.now()});else localStorage.removeItem('currentUser')}catch(e){}}
+function onTamper(k){if(TAMPER.key===k)return;TAMPER.key=k;TAMPER.hit=true;clearSession();if(k===LKEY)LOG=[];
+  setTimeout(()=>{showView('login');$('lgM').textContent='⚠️ Phát hiện dữ liệu lưu trữ bị can thiệp ('+k.replace('shopee_stock_tracker_','')+'). Hệ thống đã tự động đăng xuất.'},0)}
+function checkIntegrity(){
+  if(!REMOTE)sload(localStorage,AKEY,null,true);sload(localStorage,LKEY,null,true);
+  if(!CU)return;
+  const c=SK(localStorage,'currentUser');if(c!=null&&unseal(c)===undefined)return onTamper('currentUser');
+  const t=SK(sessionStorage,SKEY);if(t==null){clearSession();return showView('login')}
+  if(unseal(t)===undefined)onTamper('session')}
+addEventListener('focus',checkIntegrity);addEventListener('storage',checkIntegrity);setInterval(checkIntegrity,4000);
 /* Đọc lại quyền mới nhất của tài khoản đang đăng nhập rồi áp dụng lên giao diện. silent=true: chỉ áp dụng khi quyền/trạng thái thay đổi. */
 async function applyModulePermissions(silent){
+  checkIntegrity();
   const sig=()=>CU?mods(CU).join(',')+'|'+CU.active:'',before=sig();
   if(CU){let u;try{u=await dbGetUser(CU.id)}catch(e){u=undefined}
-    if(u!==undefined&&(!u||!u.active)){CU=null;try{sessionStorage.removeItem(SKEY)}catch(e){}}else if(u)CU=u}
+    if(u!==undefined&&(!u||!u.active)){clearSession()}else if(u)CU=u}
   syncCurrentUser();
   if(silent&&before===sig())return;
   showView(CURV||'home')}
@@ -777,7 +825,7 @@ document.addEventListener('DOMContentLoaded',()=>applyModulePermissions(true));
 let permT=0;function notify(t){const e=$('permMsg');e.textContent=t;e.hidden=false;clearTimeout(permT);permT=setTimeout(()=>{e.hidden=true},7000)}
 /* Điều hướng view */
 function showView(v){
-  if(!REMOTE){A=ld(AKEY,A);if(CU){const u=A.users.find(x=>x.id===CU.id);CU=u&&u.active?u:null}}
+  if(!REMOTE){A=ldA(A);if(CU){const u=A.users.find(x=>x.id===CU.id);CU=u&&u.active?u:null}}
   let M=[];if(!CU)v='login';
   else{M=mods(CU);const first=M.includes('stock')?'track':M.includes('price')?'price':'home',need={track:'stock',ana:'stock',price:'price'}[v];
     if(v==='home'&&M.length===1)v=first;
@@ -790,18 +838,18 @@ function showView(v){
   if(v==='admin'){purgeTrash();renderAdmin()}else if(v==='track')render();else if(v==='price')renderPrice();else if(v==='home')homeInfo();
   if(v==='login'){prepLogin();$('permMsg').hidden=true}scrollTo(0,0);try{history.replaceState(null,'',VHASH[v]||(location.pathname+location.search))}catch(e){}}
 function prepLogin(){const unk=ADMIN_EXISTS===null;
-  $('lgT').textContent=unk?'Không kết nối được Database':'Đăng nhập';
+  $('lgT').textContent=TAMPER.key===AKEY?'Dữ liệu tài khoản bị can thiệp':unk?'Không kết nối được Database':'Đăng nhập';
   $('lgS').textContent=unk?'Không khởi tạo được dữ liệu tài khoản. Kiểm tra mạng/cấu hình rồi thử lại.':'Đăng nhập để dùng Shopee Stock Tracker.'+(REMOTE?'':' (Chế độ cục bộ: tài khoản chỉ lưu trong trình duyệt này.)');
   $('lgB').textContent=unk?'Thử lại':'Đăng nhập';$('lgP').value='';$('lgM').textContent=''}
 /* Tài khoản cố định ban đầu (chỉ tạo khi hệ thống chưa có Admin nào). Nên đổi mật khẩu sau khi đăng nhập. */
-const SEED=[{username:'admin',pw:'290821zxcv',role:'admin',mods:['stock','price']},{username:'nhanvienbagchunho',pw:'123456',role:'staff',mods:['stock','price']},{username:'nhanvien2',pw:'123456',role:'staff',mods:['stock','price']},{username:'quanly1',pw:'123456',role:'manager',mods:['stock','price']}];
-async function seedUsers(){for(const d of SEED){const salt=Math.random().toString(36).slice(2);
-  try{await dbAdd({id:'u_'+d.username,username:d.username,uname:d.username,email:'',role:d.role,allowedModules:d.mods,active:true,salt,hash:await hashPw(d.pw,salt),created:Date.now()})}
+const SEED=[{username:'admin',role:'admin',mods:['stock','price'],salt:'8e04cb75097f8a4974824e36720d87c4',hash:'s:f408b2b708a5fcaf16ba91025640f0027a8f823cf559b173b6a92689b7f36ff6'},{username:'nhanvienbagchunho',role:'staff',mods:['stock','price'],salt:'b1293c396dc872af65f49f9c3988eb01',hash:'s:b3ece2d9828afd7f0d27bf0cd925e02d185d35e84620083d936ea707465ae9ed'},{username:'nhanvien2',role:'staff',mods:['stock','price'],salt:'556f6b667244d469a7da09e33d1659c4',hash:'s:eecc821237f41eb03cbf10e74cf2e5da619bcae438db75a40f8969116a407942'},{username:'quanly1',role:'manager',mods:['stock','price'],salt:'ba2493101f6bcb0cd338e8544a0214db',hash:'s:f672f667a27c8f2bcf6d4a12c5f6d40783c2312d749b9691845e663d6aabd506'}];
+async function seedUsers(){for(const d of SEED){
+  try{await dbAdd({id:'u_'+d.username,username:d.username,uname:d.username,email:'',role:d.role,allowedModules:d.mods,active:true,salt:d.salt,hash:d.hash,created:Date.now()})}
   catch(e){if(!(await dbFindUser(d.username)))throw e}}}
-async function authInit(){LOG=ld(LKEY,[]);ADMIN_EXISTS=null;let err='';
+async function authInit(){LOG=sload(localStorage,LKEY,[],true);ADMIN_EXISTS=null;let err='';
   try{ADMIN_EXISTS=await dbHasAdmin();if(!ADMIN_EXISTS){await seedUsers();ADMIN_EXISTS=true}
-    let n=null;try{n=sessionStorage.getItem(SKEY)}catch(e){}
-    if(n){const u=await dbGetUser(n);if(u&&u.active){CU=u;purgeTrash()}}}
+    const tk=sload(sessionStorage,SKEY,null,'drop');
+    if(tk&&typeof tk.id==='string'){const u=await dbGetUser(tk.id);if(u&&u.active&&ctEq(tokFp(u),tk.fp)){CU=u;purgeTrash()}else clearSession()}}
   catch(e){ADMIN_EXISTS=null;err=e.message||String(e)}
   CURV=HASHV[location.hash]||'home';await applyModulePermissions();if(err)$('lgM').textContent='Chi tiết: '+err}
 async function doLogin(){const m=$('lgM'),un=$('lgU').value.trim(),pw=$('lgP').value;
@@ -809,17 +857,16 @@ async function doLogin(){const m=$('lgM'),un=$('lgU').value.trim(),pw=$('lgP').v
   if(!un||!pw)return m.textContent='Nhập tên người dùng và mật khẩu.';
   $('lgB').disabled=true;
   try{const u=await dbFindUser(un);
-    if(!u||u.hash!==await hashPw(pw,u.salt))return m.textContent='Sai tên người dùng hoặc mật khẩu.';
+    if(!u||!(await verifyPw(pw,u)))return m.textContent='Sai tên người dùng hoặc mật khẩu.';
     if(!u.active)return m.textContent='Tài khoản đã bị khóa. Liên hệ Admin.';
-    CU=u;logAct('Đăng nhập','');
-    try{sessionStorage.setItem(SKEY,u.id)}catch(e){}
+    CU=u;if(TAMPER.key!==AKEY)TAMPER.key='';logAct('Đăng nhập','');saveSession(u);
     $('lgP').value='';purgeTrash();CURV=HASHV[location.hash]||'home';await applyModulePermissions()}
   catch(e){m.textContent='Lỗi kết nối Database: '+(e.message||e)}
   finally{$('lgB').disabled=false}}
 async function changeMyPw(){if(!CU||CU.role!=='admin')return;const n=prompt('Mật khẩu mới cho Admin (≥ 6 ký tự):');if(!n)return;
   if(n.length<6)return alert('Mật khẩu tối thiểu 6 ký tự.');
-  const salt=Math.random().toString(36).slice(2),hash=await hashPw(n,salt);await dbPatch(CU.id,{salt,hash});CU.salt=salt;CU.hash=hash;logAct('Đổi mật khẩu Admin','');alert('Đã đổi mật khẩu Admin.')}
-function doLogout(){logAct('Đăng xuất','');CU=null;try{sessionStorage.removeItem(SKEY)}catch(e){}showView('login')}
+  const salt=newSalt(),hash=await hashPw(n,salt);await dbPatch(CU.id,{salt,hash});CU.salt=salt;CU.hash=hash;saveSession(CU);logAct('Đổi mật khẩu Admin','');alert('Đã đổi mật khẩu Admin.')}
+function doLogout(){logAct('Đăng xuất','');clearSession();showView('login')}
 addEventListener('hashchange',()=>{if(CU)showView(HASHV[location.hash]||'home')});
 $('lgB').onclick=doLogin;['lgU','lgP'].forEach(id=>$(id).addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()}));
 /* Trang Admin */
@@ -841,7 +888,7 @@ $('nuB').onclick=async()=>{if(!CU||CU.role!=='admin')return;const m=$('uMsg'),un
   if(!/^\S+@\S+\.\S+$/.test(em))return m.textContent='Email không hợp lệ.';
   if(pw.length<6)return m.textContent='Mật khẩu tối thiểu 6 ký tự.';
   try{if(await dbFindUser(un))return m.textContent='Tên người dùng đã tồn tại.'}catch(e){return m.textContent='Lỗi Database: '+e.message}
-  const salt=Math.random().toString(36).slice(2);
+  const salt=newSalt();
   try{await dbAdd({id:'u'+Date.now(),username:un,uname:un.toLowerCase(),email:em,role:ro,allowedModules:[$('nuMS').checked&&'stock',$('nuMP').checked&&'price'].filter(Boolean),active:true,salt,hash:await hashPw(pw,salt),created:Date.now()})}catch(e){return m.textContent='Lỗi Database: '+e.message}
   logAct('Tạo tài khoản',un+' ('+ROLE[ro]+')');['nuN','nuE','nuP'].forEach(id=>$(id).value='');m.textContent='Đã tạo tài khoản "'+un+'".';renderAdmin()};
 $('vAdmin').addEventListener('click',async e=>{const b=e.target.closest('[data-ax]');if(!b||!CU||CU.role!=='admin')return;
@@ -850,7 +897,7 @@ $('vAdmin').addEventListener('click',async e=>{const b=e.target.closest('[data-a
   const u=A.users.find(x=>x.id===id);if(!u||u.role==='admin')return;
   if(ax==='pw'){const n=prompt('Mật khẩu mới cho "'+u.username+'" (≥ 6 ký tự):');if(!n)return;
     if(n.length<6)return alert('Mật khẩu tối thiểu 6 ký tự.');
-    u.salt=Math.random().toString(36).slice(2);u.hash=await hashPw(n,u.salt);await dbPatch(u.id,{salt:u.salt,hash:u.hash});logAct('Đổi mật khẩu tài khoản',u.username);$('uMsg').textContent='Đã đổi mật khẩu cho "'+u.username+'".'}
+    u.salt=newSalt();u.hash=await hashPw(n,u.salt);await dbPatch(u.id,{salt:u.salt,hash:u.hash});logAct('Đổi mật khẩu tài khoản',u.username);$('uMsg').textContent='Đã đổi mật khẩu cho "'+u.username+'".'}
   else if(ax==='mods'){const m=[...b.closest('tr').querySelectorAll('[data-mod]:checked')].map(x=>x.dataset.mod);await dbPatch(u.id,{allowedModules:m});u.allowedModules=m;
     logAct('Cập nhật quyền module',u.username+': '+(m.map(x=>MODN[x]).join(', ')||'không có'));$('uMsg').textContent='Đã cập nhật quyền của "'+u.username+'": '+(m.map(x=>MODN[x]).join(', ')||'không có module nào')+'.'}
   else if(ax==='lock'){u.active=!u.active;await dbPatch(u.id,{active:u.active});logAct(u.active?'Mở khóa tài khoản':'Khóa tài khoản',u.username);renderAdmin()}
