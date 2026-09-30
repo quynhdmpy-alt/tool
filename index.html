@@ -537,6 +537,15 @@ $('tpl').onclick=()=>{
 /* ===== Bookmarklet: chạy trên trang Shopee, không dùng chú thích // ===== */
 async function bmMain(){
   var W=window,D=document;
+  var SHR=/facebook|messenger|pinterest|twitter|zalo|whatsapp|telegram|instagram|chia sẻ|\bshare\b|sao chép liên kết|copy link/i;
+  var isShare=function(b){var e=b,k=0,c;
+    while(e&&e!==D.body&&k<4){c=(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')+' '+(typeof e.className==='string'?e.className:((e.className&&e.className.baseVal)||''));
+      if(/share|social|facebook|messenger|pinterest|twitter/i.test(c))return true;e=e.parentElement;k++}
+    return !!(b.closest&&b.closest('a[href]'))||SHR.test(String(b.getAttribute('aria-label')||b.innerText||b.textContent||'').normalize('NFC'))};
+  var _wo=W.open,_gd=function(e){if(e.isTrusted===false&&e.target&&e.target.nodeType===1&&isShare(e.target)){e.preventDefault();e.stopImmediatePropagation()}};
+  W.open=function(){return null};D.addEventListener('click',_gd,true);
+  var _rs=function(){W.open=_wo;D.removeEventListener('click',_gd,true)};
+  try{
   var toast=D.createElement('div');
   toast.style.cssText='position:fixed;z-index:2147483647;top:12px;right:12px;max-width:340px;padding:12px 14px;background:#17222d;color:#fff;font:14px/1.4 system-ui,sans-serif;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);cursor:pointer';
   D.body.appendChild(toast);
@@ -562,12 +571,15 @@ async function bmMain(){
   var lab=function(b){return nfc(b.getAttribute('aria-label')||b.innerText||b.textContent||'').replace(/\s+/g,' ').trim()};
   var vis=function(b){return b.getClientRects().length>0};
   var bad=/giảm|voucher|₫|\d\s?%|hoả tốc|hỏa tốc|xem thêm|thêm vào giỏ|mua ngay|chat ngay|trả hàng/i;
-  var okV=function(b){var t=lab(b);return t&&t.length<=70&&vis(b)&&!b.querySelector('button')};
+  var okV=function(b){var t=lab(b);return t&&t.length<=70&&vis(b)&&!b.querySelector('button')&&!isShare(b)};
   var okBtn=function(b){return okV(b)&&!bad.test(lab(b))};
   var Q=null,tw=D.createTreeWalker(D.body,4),nd;
   while((nd=tw.nextNode())){if(/^\s*số lượng\s*$/i.test(nfc(nd.nodeValue))&&nd.parentElement.getClientRects().length){Q=nd.parentElement}}
   var spQ=D.querySelector('input[role="spinbutton"]'),qsQ=spQ&&spQ.closest('section'),qhQ=qsQ&&qsQ.querySelector('h2');if(qhQ&&qhQ.getClientRects().length)Q=qhQ;
   var before=function(b){return !Q||(Q.compareDocumentPosition(b)&2)!==0};
+  var PT=null;[].slice.call(D.querySelectorAll('h1')).forEach(function(h){if(vis(h)&&(!Q||(h.compareDocumentPosition(Q)&4)!==0))PT=h});
+  var afterT=function(b){return !PT||(PT.compareDocumentPosition(b)&4)!==0};
+  var zone=function(b){return before(b)&&afterT(b)};
   var nums=function(c){var x=(c||'').match(/[\d.]+/g);return x?x.map(Number):[0,0,0,1]};
   var orange=function(c){var v=nums(c);return v[0]>200&&v[1]<140&&v[2]<110&&(v.length<4||v[3]>.5)};
   var isSel=function(b){var s=W.getComputedStyle(b);return /(^|[\s_-])(selected|active|checked)/i.test(String(b.className))||b.getAttribute('aria-checked')==='true'||b.getAttribute('aria-pressed')==='true'||b.getAttribute('aria-selected')==='true'||orange(s.borderTopColor)};
@@ -579,7 +591,7 @@ async function bmMain(){
     var gs=pack(bs);
     if(!gs.length&&Q){
       var A=Q.parentElement,lv=0;
-      while(A&&lv<10&&!gs.length){gs=pack([].slice.call(A.querySelectorAll('button')).filter(function(b){return before(b)&&okBtn(b)})).filter(function(g){return g.b.length>=2});A=A.parentElement;lv++}
+      while(A&&lv<10&&!gs.length){gs=pack([].slice.call(A.querySelectorAll('button')).filter(function(b){return zone(b)&&okBtn(b)})).filter(function(g){return g.b.length>=2});A=A.parentElement;lv++}
     }
     return gs};
   var readStock=function(){
@@ -669,6 +681,7 @@ async function bmMain(){
   var info='Đã quét xong '+rows.length+' SKU'+(missing?' ('+missing+' SKU trong danh sách không còn trên trang)':'')+(skipped?' (bỏ '+skipped+' SKU không đọc được)':'')+(stop?' (đã dừng sớm)':'')+'! ';
   try{await navigator.clipboard.writeText(payload);done(info+'Hãy dán vào Tracker.')}
   catch(e){done(info);W.prompt('Copy (Ctrl+C) rồi dán vào Stock Tracker:',payload)}
+  }catch(err){try{done('Lỗi bất ngờ: '+((err&&err.message)||err)+'. Hãy thử lại.')}catch(e2){}}finally{_rs()}
 }
 $('bm').href='javascript:'+encodeURIComponent('('+bmMain.toString()+')()');
 $('bm').onclick=e=>{e.preventDefault();$('pmsg').textContent='Hãy KÉO nút này lên thanh dấu trang, không bấm trực tiếp ở đây.'};
@@ -921,8 +934,8 @@ function savePrice(){sv(PKEY,P);updBadge()}
 function updBadge(){const b=$('pAlertBtn');if(!b)return;const n=Object.values(P.items).filter(pHit).length;b.textContent='⚠️ Xem SKU quá ngưỡng ('+n+')';b.style.borderColor=n?'var(--bad)':'';b.style.color=n?'var(--bad)':''}
 const vnd=n=>Number(n||0).toLocaleString('vi-VN')+'đ',skuTxt=k=>String(k).split(SEP).join(' › ');
 const hasT=i=>i.target!==''&&i.target!=null&&!isNaN(+i.target);
-const pHit=i=>hasT(i)&&i.final*1000<+i.target*995; /* true = THẤP HƠN giá sàn (Giá mục tiêu) sau khi trừ dung sai 0.5% */
-function pState(i){return!hasT(i)?['t-m','Chưa đặt ngưỡng']:pHit(i)?['t-b','⚠️ ĐÃ QUÁ NGƯỠNG GIẢM']:['tok','Bình thường']}
+const pHit=i=>!i.oos&&hasT(i)&&i.final*1000<+i.target*995; /* true = THẤP HƠN giá sàn (Giá mục tiêu) sau khi trừ dung sai 0.5% */
+function pState(i){return i.oos?['t-m','Hết hàng']:!hasT(i)?['t-m','Chưa đặt ngưỡng']:pHit(i)?['t-b','⚠️ ĐÃ QUÁ NGƯỠNG GIẢM']:['tok','Bình thường']}
 function upsert(r){const p=parseLink(r.link),sku=String(r.sku||'Mặc định').trim(),id=p.key+'||'+sku,old=P.items[id]||{},o=+r.orig||0,dc=+r.disc||0,v=+r.voucher||0;
   const tg=r.target!==undefined&&r.target!==''&&!isNaN(+r.target)?+r.target:(old.target===undefined?'':old.target);
   return P.items[id]={id,key:p.key,link:r.link,name:String(r.name||old.name||p.name),store:String(r.store||old.store||''),sku,orig:o,disc:dc,voucher:v,vinfo:r.vinfo!==undefined?String(r.vinfo):(old.vinfo||''),final:Math.max(0,o-dc-v),sale:(r.sale!==undefined&&String(r.sale).trim()!==''?String(r.sale).trim().slice(0,20):(old.sale||'')),target:tg,t:+r.t||Date.now()}}
@@ -930,8 +943,10 @@ function pastePrice(txt){let d;try{d=JSON.parse(txt.trim())}catch(e){return'Dữ
   if(!d||d.kind!=='price'||!Array.isArray(d.rows)||!d.link)return'Đây không phải dữ liệu giá từ bookmarklet 💲.';
   let n=0,hit=0;d.rows.forEach(r=>{const sku=Array.isArray(r.parts)&&r.parts.length>1?r.parts.join(SEP):r.sku;if(!(+r.orig>0))return;
     const it=upsert({link:d.link,name:d.name,store:d.store,sku,orig:r.orig,disc:r.disc,voucher:r.voucher,vinfo:r.vinfo||'',t:d.t});n++;if(pHit(it))hit++});
-  {const kk=parseLink(d.link).key;OPEN.add(pStore(kk));OPENK.add(kk)}savePrice();logAct('Cập nhật giá (bookmarklet)',n+' SKU của '+(d.name||d.link));renderPrice();
-  return n?`Đã cập nhật ${n} SKU.`+(hit?` ⚠️ ${hit} SKU thấp hơn ngưỡng!`:''):'Không có dòng giá hợp lệ.'}
+  let no=0;{const kk=parseLink(d.link).key;OPEN.add(pStore(kk));OPENK.add(kk);
+    (Array.isArray(d.oos)?d.oos:[]).forEach(o=>{if(!o)return;const sk=Array.isArray(o.parts)&&o.parts.length>1?o.parts.join(SEP):o.sku,it=P.items[kk+'||'+String(sk||'').trim()];if(it){it.oos=+d.t||Date.now();no++}})}
+  savePrice();logAct('Cập nhật giá (bookmarklet)',n+' SKU của '+(d.name||d.link)+(no?' · '+no+' SKU hết hàng':''));renderPrice();
+  return n||no?`Đã cập nhật ${n} SKU.`+(no?` ${no} SKU đang hết hàng (giữ giá cũ, không cảnh báo).`:'')+(hit?` ⚠️ ${hit} SKU thấp hơn ngưỡng!`:''):'Không có dòng giá hợp lệ.'}
 function homeInfo(){const h=Object.values(P.items).filter(pHit).length;$('hmAlert').innerHTML=h?`<span class="tag t-b">⚠️ ${h} SKU thấp hơn ngưỡng</span>`:''}
 const PSEL=new Set();
 const parsePct=v=>{const t=String(v||'').trim().replace('%','').replace(',','.');if(t==='')return null;const n=Number(t);return isFinite(n)&&n>=0&&n<=100?n:NaN};
@@ -1030,7 +1045,17 @@ $('pfx').onchange=e=>{const f=e.target.files[0];e.target.value='';if(!f)return;i
     savePrice();logAct('Nhập Excel giá',n+' SKU');renderPrice();$('ppmsg').textContent='Đã nhập '+n+' dòng.'}catch(x){$('ppmsg').textContent='Không đọc được file Excel.'}};r.readAsArrayBuffer(f)};
 /* Bookmarklet quét giá: chạy trên trang Shopee, không dùng chú thích */
 async function bmPrice(){
-  var W=window,D=document,toast=D.createElement('div');
+  var W=window,D=document;
+  var SHR=/facebook|messenger|pinterest|twitter|zalo|whatsapp|telegram|instagram|chia sẻ|\bshare\b|sao chép liên kết|copy link/i;
+  var isShare=function(b){var e=b,k=0,c;
+    while(e&&e!==D.body&&k<4){c=(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')+' '+(typeof e.className==='string'?e.className:((e.className&&e.className.baseVal)||''));
+      if(/share|social|facebook|messenger|pinterest|twitter/i.test(c))return true;e=e.parentElement;k++}
+    return !!(b.closest&&b.closest('a[href]'))||SHR.test(String(b.getAttribute('aria-label')||b.innerText||b.textContent||'').normalize('NFC'))};
+  var _wo=W.open,_gd=function(e){if(e.isTrusted===false&&e.target&&e.target.nodeType===1&&isShare(e.target)){e.preventDefault();e.stopImmediatePropagation()}};
+  W.open=function(){return null};D.addEventListener('click',_gd,true);
+  var _rs=function(){W.open=_wo;D.removeEventListener('click',_gd,true)};
+  try{
+  var toast=D.createElement('div');
   toast.style.cssText='position:fixed;z-index:2147483647;top:12px;right:12px;max-width:340px;padding:12px 14px;background:#17222d;color:#fff;font:14px/1.4 system-ui,sans-serif;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);cursor:pointer';
   D.body.appendChild(toast);var stop=false;toast.onclick=function(){stop=true};
   var say=function(t){toast.textContent=t},done=function(t){say(t);toast.onclick=function(){toast.remove()};setTimeout(function(){toast.remove()},9000)};
@@ -1041,20 +1066,24 @@ async function bmPrice(){
   var lab=function(b){return nfc(b.getAttribute('aria-label')||b.innerText||b.textContent||'').replace(/\s+/g,' ').trim()};
   var vis=function(b){return b.getClientRects().length>0};
   var bad=/giảm|voucher|₫|\d\s?%|hoả tốc|hỏa tốc|xem thêm|thêm vào giỏ|mua ngay|chat ngay|trả hàng/i;
-  var okV=function(b){var t=lab(b);return t&&t.length<=70&&vis(b)&&!b.querySelector('button')};
+  var okV=function(b){var t=lab(b);return t&&t.length<=70&&vis(b)&&!b.querySelector('button')&&!isShare(b)};
   var Q=null,tw=D.createTreeWalker(D.body,4),nd;
   while((nd=tw.nextNode())){if(/^\s*số lượng\s*$/i.test(nfc(nd.nodeValue))&&vis(nd.parentElement)){Q=nd.parentElement}}
   var spQ=D.querySelector('input[role="spinbutton"]'),qsQ=spQ&&spQ.closest('section'),qhQ=qsQ&&qsQ.querySelector('h2');if(qhQ&&qhQ.getClientRects().length)Q=qhQ;
   var before=function(b){return !Q||(Q.compareDocumentPosition(b)&2)!==0};
+  var PT=null;[].slice.call(D.querySelectorAll('h1')).forEach(function(h){if(vis(h)&&(!Q||(h.compareDocumentPosition(Q)&4)!==0))PT=h});
+  var afterT=function(b){return !PT||(PT.compareDocumentPosition(b)&4)!==0};
+  var zone=function(b){return before(b)&&afterT(b)};
   var nums=function(c){var x=(c||'').match(/[\d.]+/g);return x?x.map(Number):[0,0,0,1]};
   var isSel=function(b){var s=W.getComputedStyle(b),v=nums(s.borderColor);return /(^|[\s_-])(selected|active|checked)/i.test(String(b.className))||b.getAttribute('aria-checked')==='true'||b.getAttribute('aria-pressed')==='true'||b.getAttribute('aria-selected')==='true'||(v[0]>200&&v[1]<140&&v[2]<110)};
-  var isDis=function(b){return b.disabled||b.getAttribute('aria-disabled')==='true'||/(^|[\s_-])disabled/i.test(String(b.className))};
+  var isDis=function(b){if(!b)return true;try{var cn=typeof b.className==='string'?b.className:'';return !!(b.disabled||b.getAttribute('aria-disabled')==='true'||b.hasAttribute('disabled')||/(^|[\s_-])(disabled|no-item|sold-?out|out-?of-?stock|unavailable)/i.test(cn)||W.getComputedStyle(b).cursor==='not-allowed')}catch(e){return false}};
+  var safeClick=function(el){try{if(!el||!el.isConnected||isShare(el)||isDis(el))return false;if(typeof el.click==='function')el.click();else el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:W}));return true}catch(e){return false}};
   var keyOf=function(b){var s=b.closest('section');return s&&(!Q||!s.contains(Q))?s:b.parentElement};
   var pack=function(bs){var gs=[];bs.forEach(function(b){var k=keyOf(b),g=gs.filter(function(x){return x.p===k})[0];if(!g){g={p:k,b:[]};gs.push(g)}g.b.push(b)});return gs};
   var det=function(){
     var gs=pack([].slice.call(D.querySelectorAll('button.selection-box-selected,button.selection-box-unselected,button.product-variation')).filter(function(b){return before(b)&&okV(b)}));
     if(!gs.length&&Q){var A=Q.parentElement,lv=0;
-      while(A&&lv<10&&!gs.length){gs=pack([].slice.call(A.querySelectorAll('button')).filter(function(b){return before(b)&&okV(b)&&!bad.test(lab(b))})).filter(function(g){return g.b.length>=2});A=A.parentElement;lv++}}
+      while(A&&lv<10&&!gs.length){gs=pack([].slice.call(A.querySelectorAll('button')).filter(function(b){return zone(b)&&okV(b)&&!bad.test(lab(b))})).filter(function(g){return g.b.length>=2});A=A.parentElement;lv++}}
     return gs};
   var num=function(s){return parseInt(String(s).replace(/[^\d]/g,''),10)||0};
   var amt=function(t,re){var x=t.match(re);return x?num(x[1]):0};
@@ -1067,17 +1096,17 @@ async function bmPrice(){
   var lastEl=null;
   var fire=function(el,ev){el.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,view:W}))};
   var closePop=async function(){if(!popup())return;[lastEl,D.body].forEach(function(el){if(el){fire(el,'mouseout');fire(el,'mouseleave')}});
-    D.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true}));await sleep(350);if(popup()&&lastEl){lastEl.click();await sleep(350)}};
+    D.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true}));await sleep(350);if(popup()&&lastEl){safeClick(lastEl);await sleep(350)}};
   var openPop=async function(){
     if(popup())return true;var tgt=[],w=D.createTreeWalker(D.body,4),n3,v,pe=[];
     while((n3=w.nextNode())){v=nfc(n3.nodeValue).trim();
-      if(/chi tiết giá|giá sau voucher/i.test(v)&&v.length<40&&vis(n3.parentElement))tgt.push(n3.parentElement);
-      else if(/^([₫đ]\s?)?\d[\d.]{3,}\s?[₫đ]?$/.test(v)&&vis(n3.parentElement)&&before(n3.parentElement)&&pe.length<3)pe.push(n3.parentElement)}
-    pe.forEach(function(e){var p=e.parentElement,k=0;while(p&&k<3){[].slice.call(p.querySelectorAll('svg,i,[class*="icon"],[class*="info"],button')).forEach(function(x){if(vis(x)&&before(x)&&!bad.test(lab(x))&&tgt.indexOf(x)<0)tgt.push(x)});p=p.parentElement;k++}tgt.push(e)});
-    var ic=D.querySelector('img[alt*="price" i]'),dr=ic&&(ic.closest('.shopee-drawer')||ic.parentElement);if(dr&&vis(dr))tgt.unshift(dr);
-    for(var i=0;i<tgt.length&&i<12;i++){var el=tgt[i];lastEl=el;
+      if(/chi tiết giá|giá sau voucher/i.test(v)&&v.length<40&&vis(n3.parentElement)&&!isShare(n3.parentElement))tgt.push(n3.parentElement);
+      else if(/^([₫đ]\s?)?\d[\d.]{3,}\s?[₫đ]?$/.test(v)&&vis(n3.parentElement)&&zone(n3.parentElement)&&pe.length<3)pe.push(n3.parentElement)}
+    pe.forEach(function(e){var p=e.parentElement,k=0;while(p&&k<3){[].slice.call(p.querySelectorAll('svg,i,[class*="icon"],[class*="info"]')).forEach(function(x){if(vis(x)&&zone(x)&&!bad.test(lab(x))&&!isShare(x)&&tgt.indexOf(x)<0)tgt.push(x)});p=p.parentElement;k++}tgt.push(e)});
+    var ic=D.querySelector('img[alt*="price" i]'),dr=ic&&(ic.closest('.shopee-drawer')||ic.parentElement);if(dr&&vis(dr)&&zone(dr)&&!isShare(dr))tgt.unshift(dr);
+    for(var i=0;i<tgt.length&&i<12;i++){var el=tgt[i];if(!el)continue;lastEl=el;
       ['mouseover','mouseenter','mousemove'].forEach(function(ev){fire(el,ev)});await sleep(450);if(popup())return true;
-      el.click();await sleep(450);if(popup())return true}
+      safeClick(el);await sleep(450);if(popup())return true}
     return false};
   var readPop=async function(){await closePop();await sleep(150);if(!await openPop())return null;var a=parse(popup());await sleep(200);var p2=popup(),b=p2&&parse(p2);return b&&a&&b.orig===a.orig?b:a};
   var mny=function(n,sf){var v=sf?parseFloat(String(n).replace(',','.'))*(/^k$/i.test(sf)?1e3:1e6):num(n);return Math.round(v)||0};
@@ -1094,37 +1123,58 @@ async function bmPrice(){
   var readPrice=async function(){var r=await readPop();if(r&&!r.voucher){var v=shopV(r.orig-r.disc);if(v.amt){r.voucher=v.amt;r.vinfo=v.txt}}return r};
   var cl=function(h){return h.replace(/<svg[\s\S]*?<\/svg>/g,'<svg/>').replace(/\s(src|srcset|style|d|href|data-[\w-]+)="[^"]*"/g,'')};
   var debug=function(){var e=Q||D.body,k=0;while(e.parentElement&&k<6){e=e.parentElement;k++}return cl(e.outerHTML).slice(0,14000)+'\n---BODY-END---\n'+cl([].slice.call(D.body.children).slice(-4).map(function(x){return x.outerHTML}).join('\n')).slice(0,6000)};
-  var G=det(),rows=[],skipped=0,tiers=[];
+  var readMain=function(){var w=D.createTreeWalker(D.body,4),n,c=[],ix=0;
+    while((n=w.nextNode())){var v=nfc(n.nodeValue).trim();if(!/^[₫đ]?\s?\d[\d.,]{2,}\s?[₫đ]?$/.test(v))continue;
+      var e=n.parentElement;if(!e||!vis(e)||!zone(e))continue;var val=num(v);if(val<1000)continue;
+      var ctx=nfc((e.parentElement&&e.parentElement.innerText)||'')+v;if(ctx.indexOf('₫')<0)continue;
+      var cs=W.getComputedStyle(e),x=false,q=e,k=0;while(q&&k<4&&!x){x=/line-through/.test(String(W.getComputedStyle(q).textDecorationLine||''));q=q.parentElement;k++}
+      c.push({v:val,f:parseFloat(cs.fontSize)||0,x:x,i:ix++})}
+    var ns=c.filter(function(z){return !z.x}).sort(function(a,b){return b.f-a.f||a.i-b.i}),st=c.filter(function(z){return z.x});
+    if(!ns.length)return null;var sale=ns[0].v,orig=st.length?Math.max.apply(null,st.map(function(z){return z.v})):sale;
+    if(orig<sale)orig=sale;if(sale<1000||sale*20<orig)return null;
+    return{orig:orig,disc:orig-sale,voucher:0}};
+  var G=det(),rows=[],skipped=0,tiers=[],oos=[];
   if(G.length){try{G[0].p.scrollIntoView({behavior:'smooth',block:'center'})}catch(e){}await sleep(800)}
   var names=G.map(function(g){return g.b.map(lab)}),dims=G.map(function(g){return g.b.length}),last=dims.length-1,total=dims.reduce(function(a,b){return a*b},1);
   tiers=G.map(function(g){var h=g.p.tagName==='SECTION'?g.p.querySelector('h1,h2,h3,h4,label'):null;var t=h?nfc(h.innerText||'').trim():'';return t.length<40?t:''});
   var init=G.map(function(g){var i=-1;g.b.forEach(function(b,k){if(i<0&&isSel(b))i=k});return i});
+  var unsel=async function(h){var gs=det(),sb=gs[h]&&gs[h].b.filter(isSel)[0];if(!sb)return false;try{sb.scrollIntoView({block:'nearest'})}catch(e){}var okc=safeClick(sb);await sleep(400);return okc};
   var pick=async function(ix){for(var pass=0;pass<2;pass++){
-    for(var g=0;g<=last;g++){var gs=det(),b=gs[g]&&gs[g].b[ix[g]];if(!b)return false;if(isDis(b))return false;if(!isSel(b)){try{b.scrollIntoView({block:'nearest'})}catch(e){}b.click();await sleep(500)}}
-    var g2=det();if(ix.every(function(v,g){return g2[g]&&g2[g].b[v]&&isSel(g2[g].b[v])}))return true}
-    return false};
-  if(!G.length){say('Đang đọc chi tiết giá...');var r0=await readPrice();
-    if(!r0){try{await navigator.clipboard.writeText('DEBUG '+debug());done('Không mở được "Chi tiết giá". Đã sao chép thông tin gỡ lỗi, hãy dán và gửi cho người hỗ trợ.')}catch(e){done('Không mở được "Chi tiết giá".')}return}
+    for(var g=0;g<=last;g++){var gs=det(),b=gs[g]&&gs[g].b[ix[g]];if(!b)return'fail';
+      if(isDis(b)&&g<last){for(var h=g+1;h<=last;h++)await unsel(h);gs=det();b=gs[g]&&gs[g].b[ix[g]];if(!b)return'fail'}
+      if(isDis(b))return'oos';
+      if(!isSel(b)){try{b.scrollIntoView({block:'nearest'})}catch(e){}if(!safeClick(b))return'fail';await sleep(500)}}
+    var g2=det();if(ix.every(function(v,g){return g2[g]&&g2[g].b[v]&&isSel(g2[g].b[v])}))return'ok'}
+    return'fail'};
+  var dbg=async function(m){try{await navigator.clipboard.writeText('DEBUG '+debug());done(m+' Đã sao chép thông tin gỡ lỗi, hãy dán và gửi cho người hỗ trợ.')}catch(e){done(m)}};
+  if(!G.length){say('Sản phẩm không có phân loại, đang đọc giá hiển thị...');var r0=null;
+    try{var m0=readMain();if(m0){var v0=shopV(m0.orig-m0.disc);if(v0.amt){m0.voucher=v0.amt;m0.vinfo=v0.txt}r0=m0}}catch(e){r0=null}
+    if(!r0){try{r0=await readPrice()}catch(e){r0=null}}
+    if(!r0){await dbg('Không đọc được giá hiển thị.');return}
     rows.push({sku:'Mặc định',parts:[],orig:r0.orig,disc:r0.disc,voucher:r0.voucher,vinfo:r0.vinfo||'',final:Math.max(0,r0.orig-r0.disc-r0.voucher)})
   }else{
     if(total>300){say('Có '+total+' tổ hợp, chỉ quét 300 tổ hợp đầu.');total=300;await sleep(1500)}
+    var cf=0;
     for(var n=0;n<total&&!stop;n++){
       var ix=[],rem=n,g;for(g=0;g<=last;g++){ix[g]=rem%dims[g];rem=Math.floor(rem/dims[g])}
-      var parts=ix.map(function(v,g){return names[g][v]});
-      say('Đang quét giá '+parts.join(' › ')+' ('+(n+1)+'/'+total+')... (bấm vào đây để dừng)');
-      var ok=await pick(ix),r=ok?await readPrice():null;
-      if(r)rows.push({sku:parts.join(' › '),parts:parts,orig:r.orig,disc:r.disc,voucher:r.voucher,vinfo:r.vinfo||'',final:Math.max(0,r.orig-r.disc-r.voucher)});
-      else{skipped++;if(!rows.length&&n===0){try{await navigator.clipboard.writeText('DEBUG '+debug());done('Không mở được "Chi tiết giá". Đã sao chép thông tin gỡ lỗi, hãy dán và gửi cho người hỗ trợ.')}catch(e){done('Không mở được "Chi tiết giá".')}return}}
+      var parts=ix.map(function(v,g){return names[g][v]}),sk=parts.join(' › ');
+      say('Đang quét giá '+sk+' ('+(n+1)+'/'+total+')... (bấm vào đây để dừng)');
+      var pst='fail',r=null;
+      try{pst=await pick(ix);if(pst==='ok')r=await readPrice()}catch(e){pst='fail';r=null}
+      if(pst==='oos'){oos.push({sku:sk,parts:parts});cf=0;continue}
+      if(r){rows.push({sku:sk,parts:parts,orig:r.orig,disc:r.disc,voucher:r.voucher,vinfo:r.vinfo||'',final:Math.max(0,r.orig-r.disc-r.voucher)});cf=0}
+      else{skipped++;cf++;if(!rows.length&&cf>=3){await dbg('Không mở được "Chi tiết giá".');return}}
     }
-    await closePop();
-    for(var g3=last;g3>=0;g3--){if(init[g3]>=0){var gg=det(),rb=gg[g3]&&gg[g3].b[init[g3]];if(rb&&!isSel(rb)&&!isDis(rb)){rb.click();await sleep(500)}}}
+    try{await closePop()}catch(e){}
+    for(var g3=last;g3>=0;g3--){if(init[g3]>=0){var gg=det(),rb=gg[g3]&&gg[g3].b[init[g3]];if(rb&&!isSel(rb)&&!isDis(rb)){safeClick(rb);await sleep(500)}}}
     W.scrollTo(sx,sy)}
-  if(!rows.length){done('Không đọc được giá. Hãy thử lại.');return}
+  if(!rows.length&&!oos.length){done('Không đọc được giá. Hãy thử lại.');return}
   var sh=D.querySelector('.page-product__shop,[class*="shop-name"]'),st=sh?((sh.innerText||'').split('\n').map(function(x){return x.trim()}).filter(Boolean)[0]||''):'';
-  var payload=JSON.stringify({v:1,kind:'price',name:name,link:link,store:st,tiers:tiers.every(Boolean)?tiers:[],t:Date.now(),rows:rows});
-  var info='Đã quét giá '+rows.length+' SKU'+(skipped?' (bỏ '+skipped+' SKU không đọc được)':'')+(stop?' (đã dừng sớm)':'')+'! ';
+  var payload=JSON.stringify({v:1,kind:'price',name:name,link:link,store:st,tiers:tiers.every(Boolean)?tiers:[],t:Date.now(),rows:rows,oos:oos});
+  var info='Đã quét giá '+rows.length+' SKU'+(oos.length?' · '+oos.length+' SKU hết hàng':'')+(skipped?' (bỏ '+skipped+' SKU không đọc được)':'')+(stop?' (đã dừng sớm)':'')+'! ';
   try{await navigator.clipboard.writeText(payload);done(info+'Hãy dán vào Price Tracker.')}
   catch(e){done(info);W.prompt('Copy (Ctrl+C) rồi dán vào Price Tracker:',payload)}
+  }catch(err){try{done('Lỗi bất ngờ: '+((err&&err.message)||err)+'. Hãy thử lại.')}catch(e2){}}finally{_rs()}
 }
 /* ===== TRANG CẢNH BÁO QUÁ NGƯỠNG ===== */
 const pShort=i=>Math.max(0,Math.round(+i.target-i.final));
