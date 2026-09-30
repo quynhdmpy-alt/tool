@@ -66,6 +66,8 @@ details.prod[open]>summary{margin-bottom:12px}
 .ab{display:inline-block;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);text-decoration:none;font:inherit}
 .ab:hover{background:var(--soft)}
 button.ab{cursor:pointer}
+body.no-stock #vTrack,body.no-stock #vAna,body.no-stock #mbS,body.no-stock #hmS{display:none!important}
+body.no-price #vPrice,body.no-price #alertModal,body.no-price #mbP,body.no-price #hmP{display:none!important}
 .hm{display:block;width:100%;text-align:left;cursor:pointer;padding:18px}.hm:hover{border-color:var(--acc)}
 #modeBar{display:flex;gap:8px;margin-bottom:14px}
 .hdr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-bottom:14px}
@@ -261,6 +263,7 @@ function noteOf(x){
   return n}
 
 function render(){
+  if(!canMod('stock'))return;
   const groups={};S.records.forEach(r=>(groups[r.key]=groups[r.key]||[]).push(r));
   const keys=Object.keys(groups);
   $('links').innerHTML=keys.map(k=>`<option value="${esc(groups[k][0].link)}">${esc(S.names[k]||k)}</option>`).join('');
@@ -359,6 +362,7 @@ function restockAoa(){
   const l=rows.filter(x=>x.V>0&&['oos','urgent','reorder'].includes(statusOf(x.stock,x.V).k)).sort((a,b)=>dOf(a)-dOf(b));
   return[['Store','Sản phẩm','Link','SKU','Tồn hiện tại','V (sp/ngày)','D (ngày còn lại)','Trạng thái','Gợi ý nhập thêm (về ~'+TGT+' ngày)'],...l.map(x=>[x.store,x.prod,x.link,x.sku,x.stock,r1(x.V),x.stock?r1(dOf(x)):0,statusOf(x.stock,x.V).t,Math.max(0,Math.ceil(x.V*TGT)-x.stock)])]}
 function renderAnalytics(){
+  if(!canMod('stock'))return;
   const all=anaStats(),stores=[...new Set(all.map(x=>x.store))].sort((a,b)=>a.localeCompare(b,'vi'));
   const sc=$('ascope'),cv=sc.value;
   sc.innerHTML='<option value="">Tất cả store</option>'+stores.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
@@ -751,7 +755,25 @@ function restoreTrash(id){const x=(S.trash||[]).find(t=>t.id===id);if(!x)return;
 /* Phân quyền module */
 const MODN={stock:'Stock Tracking',price:'Price Tracking'},NOPERM='⚠️ Bạn không có quyền truy cập Module này. Vui lòng liên hệ Admin!',NONE='⚠️ Tài khoản chưa được cấp quyền module nào. Vui lòng liên hệ Admin!';
 const HASHV={'#stock':'track','#price':'price','#admin':'admin'},VHASH={track:'#stock',ana:'#stock',price:'#price',admin:'#admin'};
-const mods=u=>u.role==='admin'?['stock','price']:(Array.isArray(u.allowedModules)?u.allowedModules.filter(m=>MODN[m]):['stock','price']);
+const mods=u=>{if(u.role==='admin')return['stock','price'];let a=u.allowedModules;if(a==null)return['stock','price'];
+  if(typeof a==='string'){try{a=JSON.parse(a)}catch(e){a=a.split(/[\s,{}"']+/)}}
+  return Array.isArray(a)?a.filter(m=>MODN[m]):[]};
+let CURV='home';const canMod=m=>!!CU&&mods(CU).includes(m);
+/* currentUser (bản rút gọn, KHÔNG chứa mật khẩu/hash) — chỉ để tham khảo, quyền thật luôn đọc lại từ danh sách Users */
+function syncCurrentUser(){try{if(CU)localStorage.setItem('currentUser',JSON.stringify({id:CU.id,username:CU.username,role:CU.role,allowedModules:mods(CU)}));else localStorage.removeItem('currentUser')}catch(e){}}
+/* Đọc lại quyền mới nhất của tài khoản đang đăng nhập rồi áp dụng lên giao diện. silent=true: chỉ áp dụng khi quyền/trạng thái thay đổi. */
+async function applyModulePermissions(silent){
+  const sig=()=>CU?mods(CU).join(',')+'|'+CU.active:'',before=sig();
+  if(CU){let u;try{u=await dbGetUser(CU.id)}catch(e){u=undefined}
+    if(u!==undefined&&(!u||!u.active)){CU=null;try{sessionStorage.removeItem(SKEY)}catch(e){}}else if(u)CU=u}
+  syncCurrentUser();
+  if(silent&&before===sig())return;
+  showView(CURV||'home')}
+addEventListener('focus',()=>applyModulePermissions(true));setInterval(()=>applyModulePermissions(true),30000);
+document.addEventListener('DOMContentLoaded',()=>applyModulePermissions(true));
+/* Chặn mọi thao tác bên trong module không có quyền (kể cả khi bị gọi bằng script) */
+['click','change','input','keydown'].forEach(ev=>document.addEventListener(ev,e=>{const w=e.target.closest&&e.target.closest('#vTrack,#vAna,#vPrice,#alertModal');if(!w)return;
+  if(!canMod(w.id==='vTrack'||w.id==='vAna'?'stock':'price')){e.stopImmediatePropagation();e.preventDefault();notify(NOPERM);showView('home')}},true));
 let permT=0;function notify(t){const e=$('permMsg');e.textContent=t;e.hidden=false;clearTimeout(permT);permT=setTimeout(()=>{e.hidden=true},7000)}
 /* Điều hướng view */
 function showView(v){
@@ -762,7 +784,7 @@ function showView(v){
     else if(v==='admin'&&CU.role!=='admin'){notify(NOPERM);v=first}
     else if(need&&!M.includes(need)){notify(M.length?NOPERM:NONE);v=first}}
   ['Login','Home','Track','Ana','Price','Admin'].forEach(n=>$('v'+n).hidden=n.toLowerCase()!==v);
-  $('hdr').hidden=!CU;$('boot').hidden=true;
+  $('hdr').hidden=!CU;$('boot').hidden=true;document.body.classList.toggle('no-stock',!!CU&&!M.includes('stock'));document.body.classList.toggle('no-price',!!CU&&!M.includes('price'));syncCurrentUser();CURV=v;
   if(CU){$('who').textContent='Xin chào, '+CU.username+' · '+ROLE[CU.role];$('admBtn').hidden=CU.role!=='admin';$('hmS').hidden=!M.includes('stock');$('hmP').hidden=!M.includes('price');$('hmNone').hidden=M.length>0;$('homeBtn').hidden=M.length<2}
   $('modeBar').hidden=!['track','ana','price'].includes(v)||M.length<2;$('mbS').hidden=!M.includes('stock');$('mbP').hidden=!M.includes('price');$('mbS').className=v==='track'||v==='ana'?'p':'';$('mbP').className=v==='price'?'p':'';$('alertModal').hidden=true;updBadge();
   if(v==='admin'){purgeTrash();renderAdmin()}else if(v==='track')render();else if(v==='price')renderPrice();else if(v==='home')homeInfo();
@@ -781,7 +803,7 @@ async function authInit(){LOG=ld(LKEY,[]);ADMIN_EXISTS=null;let err='';
     let n=null;try{n=sessionStorage.getItem(SKEY)}catch(e){}
     if(n){const u=await dbGetUser(n);if(u&&u.active){CU=u;purgeTrash()}}}
   catch(e){ADMIN_EXISTS=null;err=e.message||String(e)}
-  showView(HASHV[location.hash]||'home');if(err)$('lgM').textContent='Chi tiết: '+err}
+  CURV=HASHV[location.hash]||'home';await applyModulePermissions();if(err)$('lgM').textContent='Chi tiết: '+err}
 async function doLogin(){const m=$('lgM'),un=$('lgU').value.trim(),pw=$('lgP').value;
   if(ADMIN_EXISTS===null){m.textContent='Đang thử kết nối lại...';return authInit()}
   if(!un||!pw)return m.textContent='Nhập tên người dùng và mật khẩu.';
@@ -791,7 +813,7 @@ async function doLogin(){const m=$('lgM'),un=$('lgU').value.trim(),pw=$('lgP').v
     if(!u.active)return m.textContent='Tài khoản đã bị khóa. Liên hệ Admin.';
     CU=u;logAct('Đăng nhập','');
     try{sessionStorage.setItem(SKEY,u.id)}catch(e){}
-    $('lgP').value='';purgeTrash();showView(HASHV[location.hash]||'home')}
+    $('lgP').value='';purgeTrash();CURV=HASHV[location.hash]||'home';await applyModulePermissions()}
   catch(e){m.textContent='Lỗi kết nối Database: '+(e.message||e)}
   finally{$('lgB').disabled=false}}
 async function changeMyPw(){if(!CU||CU.role!=='admin')return;const n=prompt('Mật khẩu mới cho Admin (≥ 6 ký tự):');if(!n)return;
@@ -877,7 +899,7 @@ function pParent(k,G){const id=k+'||'+G.parent,open=POPENP.has(id),K=G.kids,n=K.
   const st=G.hit?`<span class="tag t-b">⚠️ ${G.hit}/${n} QUÁ NGƯỠNG</span>`:tg.length?'<span class="tag tok">Bình thường</span>':'<span class="tag t-m">Chưa đặt ngưỡng</span>';
   return`<tr data-xtp="${esc(id)}" style="cursor:pointer;${G.hit?'':'background:var(--soft)'}"${G.hit?HL:''}><td><input type="checkbox" style="width:auto;margin-right:6px" data-pselg="${esc(id)}"${K.every(x=>PSEL.has(x.id))?' checked':''}><b>${open?'▾':'▸'} ${esc(G.parent)}</b> <span style="color:var(--mut);font-size:12px">(${n} phân loại)</span></td><td class="n">${rg(K.map(x=>x.orig))}</td><td class="n">${rg(K.map(x=>x.disc))}</td><td class="n">${Math.max(...vs)>0?rg(vs):'Không có'}</td><td class="n"><b>${rg(K.map(x=>x.final))}</b></td><td><input type="number" min="0" step="1000" style="width:120px" data-xgt="${esc(id)}" value="${eq?tg[0]:''}" placeholder="Đặt cho cả nhóm"></td><td><input type="text" maxlength="20" style="width:90px" data-xgs="${esc(id)}" value="${esc(K.every(x=>(x.sale||'')===(K[0].sale||''))?(K[0].sale||''):'')}" placeholder="Cả nhóm"></td><td>${st}</td><td>${fmt(G.t)}</td><td><button type="button" class="x" data-xds="${esc(id)}">Xóa nhóm</button></td></tr>`+(open?K.map(x=>pLeaf(x,esc(x.child||'(chung)'),1)).join(''):'')}
 function pVisible(){const q=$('pq').value.trim().toLowerCase(),f=$('pst').value;return Object.values(P.items).filter(i=>(!f||pHit(i))&&(!q||(pName(i.key)+' '+pStore(i.key)+' '+skuTxt(i.sku)).toLowerCase().includes(q)))}
-function renderPrice(){updBadge();$('bkCnt').textContent=PSEL.size?PSEL.size+' SKU đã tick':'';const all=Object.values(P.items),hit=all.filter(pHit).length,q=$('pq').value.trim().toLowerCase(),f=$('pst').value;
+function renderPrice(){if(!canMod('price'))return;updBadge();$('bkCnt').textContent=PSEL.size?PSEL.size+' SKU đã tick':'';const all=Object.values(P.items),hit=all.filter(pHit).length,q=$('pq').value.trim().toLowerCase(),f=$('pst').value;
   $('pAlert').innerHTML=hit?`<div class="card" style="border-color:var(--bad)"><b style="color:var(--bad)">⚠️ ${hit} SKU thấp hơn ngưỡng!</b></div>`:'';
   const rows=pVisible();
   if(!rows.length){$('pOut').innerHTML='<div class="empty">'+(all.length?'Không có SKU phù hợp bộ lọc.':'Chưa có dữ liệu giá. Dùng bookmarklet 💲 hoặc nhập Excel/JSON.')+'</div>';return}
@@ -1050,7 +1072,7 @@ async function bmPrice(){
 const pShort=i=>Math.max(0,Math.round(+i.target-i.final));
 function pViol(){const q=$('aq').value.trim().toLowerCase();
   return Object.values(P.items).filter(pHit).filter(i=>!q||(pStore(i.key)+' '+pName(i.key)+' '+skuTxt(i.sku)).toLowerCase().includes(q)).sort((a,b)=>pShort(b)-pShort(a))}
-function renderAlert(){const l=pViol();
+function renderAlert(){if(!canMod('price'))return;const l=pViol();
   $('aOut').innerHTML=l.length?`<div class="sub" style="margin:0 0 6px">${l.length} SKU thấp hơn ngưỡng · sắp xếp theo mức thiếu nhiều nhất</div><div class="scroll"><table><thead><tr><th>Tên Store</th><th>Sản phẩm</th><th>Phân loại SKU</th><th class="n">Giá gốc</th><th class="n">Giá sau giảm</th><th class="n">Giá mục tiêu</th><th class="n">Chênh lệch (thiếu)</th><th>Cập nhật</th><th></th></tr></thead><tbody>${l.map(i=>`<tr${HL}><td>${esc(pStore(i.key))}</td><td style="white-space:normal">${esc(pName(i.key))}</td><td>${esc(skuTxt(i.sku))}</td><td class="n">${vnd(i.orig)}</td><td class="n"><b>${vnd(i.final)}</b></td><td class="n">${vnd(i.target)}</td><td class="n"><span class="tag t-b">−${vnd(pShort(i))}</span></td><td>${fmt(i.t)}</td><td><button type="button" data-ago="${esc(i.id)}">Chuyển đến sản phẩm</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Không có SKU nào thấp hơn ngưỡng 🎉</div>'}
 function gotoProduct(id){const i=P.items[id];if(!i)return;$('alertModal').hidden=true;$('pq').value='';$('pst').value='';OPEN.add(pStore(i.key));OPENK.add(i.key);if(i.sku.includes(SEP))POPENP.add(i.key+'||'+splitSku(i.sku)[0]);
   renderPrice();setTimeout(()=>{const el=[...document.querySelectorAll('details.prod')].find(e=>e.dataset.pk===i.key);if(el){el.scrollIntoView({block:'start'});el.style.outline='2px solid var(--bad)';setTimeout(()=>{el.style.outline=''},2500)}},50)}
