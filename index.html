@@ -2,6 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shopee Stock Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -745,20 +746,24 @@ function sload(st,k,def,legacy){const r=SK(st,k);if(r==null)return def;
 
 const AKEY='shopee_stock_tracker_auth',LKEY='shopee_stock_tracker_log',SKEY='shopee_stock_tracker_sess',TRASH_DAYS=30;
 let A={users:[]},LOG=[],CU=null,ADMIN_EXISTS=null;
-/* === DB adapter: điền BACKEND (Supabase) để lưu tài khoản trên Database dùng chung; để trống = lưu cục bộ trong trình duyệt === */
-const BACKEND={url:'',anonKey:''};
-const REMOTE=!!(BACKEND.url&&BACKEND.anonKey),enc=encodeURIComponent;
-async function dbReq(method,path,body){const r=await fetch(BACKEND.url.replace(/\/$/,'')+'/rest/v1/'+path,{method,headers:{apikey:BACKEND.anonKey,Authorization:'Bearer '+BACKEND.anonKey,'Content-Type':'application/json',Prefer:'return=representation'},body:body?JSON.stringify(body):undefined});
-  if(!r.ok)throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,120));const t=await r.text();return t?JSON.parse(t):[]}
+/* === DB adapter: Supabase (supabase-js v2), bảng public.users. Toàn bộ tài khoản & phân quyền lưu trên Database dùng chung. === */
+const BACKEND={url:'https://qxqlpbvgrdtaboxvpovx.supabase.co',anonKey:'sb_publishable_Lcuz0ptGQSkjJMgZ_5hU0Q_MYQnxxzu'};
+const REMOTE=true,TBL='users';
+let sb=null;
+try{if(window.supabase&&window.supabase.createClient)sb=window.supabase.createClient(BACKEND.url,BACKEND.anonKey,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}})}catch(e){}
+/* Cột DB là "modules"; trong app dùng tên "allowedModules" → chuyển đổi 2 chiều tại đây */
+const fromRow=r=>{if(!r)return null;const o=Object.assign({},r);o.allowedModules=o.modules;delete o.modules;return o};
+const toRow=o=>{const r=Object.assign({},o);if('allowedModules' in r){r.modules=r.allowedModules;delete r.allowedModules}return r};
+async function q(fn){if(!sb)throw new Error('Không tải được Supabase SDK (kiểm tra mạng hoặc bộ chặn quảng cáo/CDN).');
+  const {data,error}=await fn(sb.from(TBL));if(error)throw new Error(error.message||'Lỗi Supabase');return data||[]}
 const ldA=d=>sload(localStorage,AKEY,d,true);
-const locA=()=>{if(TAMPER.key===AKEY)throw new Error('Dữ liệu tài khoản bị can thiệp. Hãy xóa dữ liệu trang (Clear site data) để khởi tạo lại.');A=ldA({users:[]});if(TAMPER.key===AKEY)throw new Error('Dữ liệu tài khoản bị can thiệp. Hãy xóa dữ liệu trang (Clear site data) để khởi tạo lại.');A.users=A.users||[];return A};
-async function dbHasAdmin(){if(REMOTE)return(await dbReq('GET','app_users?role=eq.admin&select=id&limit=1')).length>0;return locA().users.some(u=>u.role==='admin')}
-async function dbFindUser(n){const k=n.toLowerCase();if(REMOTE)return(await dbReq('GET','app_users?uname=eq.'+enc(k)+'&select=*&limit=1'))[0]||null;return locA().users.find(u=>u.username.toLowerCase()===k)||null}
-async function dbGetUser(id){if(REMOTE)return(await dbReq('GET','app_users?id=eq.'+enc(id)+'&select=*&limit=1'))[0]||null;return locA().users.find(u=>u.id===id)||null}
-async function dbListUsers(){if(REMOTE)return dbReq('GET','app_users?select=*&order=created.asc');return locA().users}
-async function dbAdd(u){if(REMOTE){await dbReq('POST','app_users',u);return}locA().users.push(u);saveA()}
-async function dbPatch(id,f){if(REMOTE){await dbReq('PATCH','app_users?id=eq.'+enc(id),f);return}const u=A.users.find(x=>x.id===id);if(u)Object.assign(u,f);saveA()}
-async function dbDel(id){if(REMOTE){await dbReq('DELETE','app_users?id=eq.'+enc(id));return}A.users=A.users.filter(x=>x.id!==id);saveA()}
+async function dbHasAdmin(){return(await q(t=>t.select('id').eq('role','admin').limit(1))).length>0}
+async function dbFindUser(n){return fromRow((await q(t=>t.select('*').eq('uname',String(n).toLowerCase()).limit(1)))[0])}
+async function dbGetUser(id){return fromRow((await q(t=>t.select('*').eq('id',id).limit(1)))[0])}
+async function dbListUsers(){return(await q(t=>t.select('*').order('created',{ascending:true}))).map(fromRow)}
+async function dbAdd(u){await q(t=>t.insert(toRow(u)))}
+async function dbPatch(id,f){await q(t=>t.update(toRow(f)).eq('id',id))}
+async function dbDel(id){await q(t=>t.delete().eq('id',id))}
 addEventListener('unhandledrejection',e=>alert('Lỗi kết nối Database: '+((e.reason&&e.reason.message)||e.reason)));
 const ROLE={admin:'Admin',manager:'Quản lý',staff:'Nhân viên'};
 const TYPEL={sku:'Xóa SKU',variant:'Xóa phân loại',product:'Xóa sản phẩm',record:'Xóa bản ghi',all:'Xóa toàn bộ dữ liệu',price:'Xóa SKU giá'};
@@ -772,7 +777,6 @@ async function verifyPw(pw,u){const st=String(u.hash||'');
   if(st.startsWith('w:')){if(!ctEq(weakHash(u.salt+'|'+pw),st))return false;
     const salt=newSalt(),hash=await hashPw(pw,salt);await dbPatch(u.id,{salt,hash});u.salt=salt;u.hash=hash;return true}
   return ctEq(await hashPw(pw,u.salt),st)}
-const saveA=()=>{if(TAMPER.key===AKEY)return;ssave(localStorage,AKEY,A)};
 function logAct(a,d,u){const who=u||(CU&&CU.username);if(!who)return;LOG.unshift({t:Date.now(),u:who,a,d:d||''});if(LOG.length>3000)LOG.length=3000;ssave(localStorage,LKEY,LOG)}
 /* Thùng rác (xóa mềm) */
 function trashPut(type,label,recs){if(!recs.length)return;
@@ -825,7 +829,6 @@ document.addEventListener('DOMContentLoaded',()=>applyModulePermissions(true));
 let permT=0;function notify(t){const e=$('permMsg');e.textContent=t;e.hidden=false;clearTimeout(permT);permT=setTimeout(()=>{e.hidden=true},7000)}
 /* Điều hướng view */
 function showView(v){
-  if(!REMOTE){A=ldA(A);if(CU){const u=A.users.find(x=>x.id===CU.id);CU=u&&u.active?u:null}}
   let M=[];if(!CU)v='login';
   else{M=mods(CU);const first=M.includes('stock')?'track':M.includes('price')?'price':'home',need={track:'stock',ana:'stock',price:'price'}[v];
     if(v==='home'&&M.length===1)v=first;
